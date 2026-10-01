@@ -790,12 +790,12 @@ async function getConversation(
       );
 
 
-      const isRateLimit =
-        body
-          .toLowerCase()
-          .includes(
-            "api rate limit/minute exceeded"
-          );
+    const isRateLimit =
+  response.status === 429 ||
+  (
+    body.toLowerCase().includes("rate limit") &&
+    body.toLowerCase().includes("exceeded")
+  );
 
 
       if (isRateLimit) {
