@@ -3,88 +3,85 @@ const { Pool } = require("pg");
 require("dotenv").config();
 
 const app = express();
-
 app.use(express.json());
 
-
-/****************************************************
- * CONFIG
- ****************************************************/
-
 const CONFIG = {
-
   SUBSCRIBER_API:
     "https://growth.thewiseparrot.club/api/v1/whatsapp/subscriber/list",
 
   CONVERSATION_API:
     "https://growth.thewiseparrot.club/api/v1/whatsapp/get/conversation",
 
-  PHONE_NUMBER_ID:
-    "1354199964441267",
+  PHONE_NUMBER_ID: "1354199964441267",
 
-  SUBSCRIBER_LIMIT:
-    100,
+  SUBSCRIBER_LIMIT: 100,
 
-  CHAT_LIMIT:
-    50,
+  CHAT_LIMIT: 50,
 
-  BOT_GAP_MINUTES:
-    10,
+  BOT_GAP_MINUTES: 10,
 
-  DATABASE_TABLE:
-    "book_of_trips_leads",
+  DATABASE_TABLE: "book_of_trips_leads",
 
-  SYNC_INTERVAL_MINUTES:
-    15
-
+  SYNC_INTERVAL_MINUTES: 15
 };
 
-
-const API_TOKEN =
-  process.env.WISE_PARROT_API_TOKEN;
-
-
-/****************************************************
- * VALIDATE ENV
- ****************************************************/
+const API_TOKEN = process.env.WISE_PARROT_API_TOKEN;
 
 if (!API_TOKEN) {
-
   console.error(
     "ERROR: WISE_PARROT_API_TOKEN is missing in .env"
   );
-
 }
 
-
-/****************************************************
- * DATABASE
- ****************************************************/
-
 const pool = new Pool({
-
-  connectionString:
-    process.env.DATABASE_URL,
+  connectionString: process.env.DATABASE_URL,
 
   ssl: {
     rejectUnauthorized: false
   }
-
 });
-
-
-/****************************************************
- * SYNC LOCK
- *
- * Prevent overlapping syncs.
- ****************************************************/
 
 let syncRunning = false;
 
 
-/****************************************************
- * HOME
- ****************************************************/
+/* =====================================================
+   API RATE LIMIT SETTINGS
+   ===================================================== */
+
+const CONVERSATION_REQUEST_GAP_MS = 1500;
+
+const RATE_LIMIT_WAIT_MS = 61000;
+
+const MAX_RATE_LIMIT_RETRIES = 2;
+
+let lastConversationRequestTime = 0;
+
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+
+async function waitBeforeConversationRequest() {
+
+  const elapsed =
+    Date.now() - lastConversationRequestTime;
+
+  const remaining =
+    CONVERSATION_REQUEST_GAP_MS - elapsed;
+
+  if (remaining > 0) {
+    await sleep(remaining);
+  }
+
+  lastConversationRequestTime =
+    Date.now();
+}
+
+
+/* =====================================================
+   HOME
+   ===================================================== */
 
 app.get("/", (req, res) => {
 
@@ -95,9 +92,9 @@ app.get("/", (req, res) => {
 });
 
 
-/****************************************************
- * DATABASE TEST
- ****************************************************/
+/* =====================================================
+   DATABASE TEST
+   ===================================================== */
 
 app.get("/test-db", async (req, res) => {
 
@@ -144,13 +141,9 @@ app.get("/test-db", async (req, res) => {
 });
 
 
-/****************************************************
- * MANUAL FULL SYNC
- *
- * You can test manually:
- *
- * http://localhost:3000/sync
- ****************************************************/
+/* =====================================================
+   MANUAL FULL SYNC
+   ===================================================== */
 
 app.get("/sync", async (req, res) => {
 
@@ -167,12 +160,10 @@ app.get("/sync", async (req, res) => {
 
   }
 
-
   try {
 
     const result =
       await runFullSync();
-
 
     res.json({
 
@@ -185,7 +176,6 @@ app.get("/sync", async (req, res) => {
         result
 
     });
-
 
   } catch (error) {
 
@@ -211,9 +201,9 @@ app.get("/sync", async (req, res) => {
 });
 
 
-/****************************************************
- * FULL SYNC
- ****************************************************/
+/* =====================================================
+   FULL SYNC
+   ===================================================== */
 
 async function runFullSync() {
 
@@ -224,21 +214,15 @@ async function runFullSync() {
     );
 
     return {
-
-      skipped:
-        true
-
+      skipped: true
     };
 
   }
 
-
   syncRunning = true;
-
 
   const startTime =
     Date.now();
-
 
   let processed = 0;
 
@@ -250,10 +234,10 @@ async function runFullSync() {
 
   let skipped = 0;
 
-
   try {
 
     console.log("");
+
     console.log(
       "=========================================="
     );
@@ -277,13 +261,10 @@ async function runFullSync() {
     );
 
 
-    /**********************************************
-     * GET ALL SUBSCRIBERS
-     **********************************************/
+    /* GET ALL SUBSCRIBERS */
 
     const subscribers =
       await getAllSubscribers();
-
 
     console.log(
       "Total subscribers received:",
@@ -291,9 +272,7 @@ async function runFullSync() {
     );
 
 
-    /**********************************************
-     * PROCESS TODAY'S SUBSCRIBERS
-     **********************************************/
+    /* PROCESS TODAY'S SUBSCRIBERS */
 
     for (
       const subscriber of subscribers
@@ -331,6 +310,7 @@ async function runFullSync() {
 
 
         console.log("");
+
         console.log(
           "------------------------------------------"
         );
@@ -346,9 +326,7 @@ async function runFullSync() {
         );
 
 
-        /******************************************
-         * COMPLETE CONVERSATION
-         ******************************************/
+        /* COMPLETE CONVERSATION */
 
         const conversationData =
           await getConversation(
@@ -371,9 +349,7 @@ async function runFullSync() {
         );
 
 
-        /******************************************
-         * ANALYSE
-         ******************************************/
+        /* ANALYSE */
 
         const extracted =
           extractConversationData(
@@ -381,9 +357,7 @@ async function runFullSync() {
           );
 
 
-        /******************************************
-         * SAVE
-         ******************************************/
+        /* SAVE */
 
         const saved =
           await saveToDatabase(
@@ -421,7 +395,6 @@ async function runFullSync() {
 
         failed++;
 
-
         console.error(
           "Subscriber processing failed:",
           subscriber.chat_id,
@@ -444,6 +417,7 @@ async function runFullSync() {
 
 
     console.log("");
+
     console.log(
       "=========================================="
     );
@@ -521,11 +495,9 @@ async function runFullSync() {
 }
 
 
-/****************************************************
- * GET ALL SUBSCRIBERS
- *
- * Subscriber API pagination
- ****************************************************/
+/* =====================================================
+   GET ALL SUBSCRIBERS
+   ===================================================== */
 
 async function getAllSubscribers() {
 
@@ -553,9 +525,7 @@ async function getAllSubscribers() {
 
 
     if (!data) {
-
       break;
-
     }
 
 
@@ -621,10 +591,6 @@ async function getAllSubscribers() {
     pageNumber++;
 
 
-    /**********************************************
-     * SAFETY
-     **********************************************/
-
     if (
       pageNumber > 1000
     ) {
@@ -645,9 +611,9 @@ async function getAllSubscribers() {
 }
 
 
-/****************************************************
- * SUBSCRIBER API
- ****************************************************/
+/* =====================================================
+   SUBSCRIBER API
+   ===================================================== */
 
 async function getSubscribers(offset) {
 
@@ -732,13 +698,9 @@ async function getSubscribers(offset) {
 }
 
 
-/****************************************************
- * CONVERSATION API
- *
- * COMPLETE PAGINATION
- *
- * MAX 50 RECORDS PER PAGE
- ****************************************************/
+/* =====================================================
+   CONVERSATION API
+   ===================================================== */
 
 async function getConversation(
   phoneNumber
@@ -763,65 +725,127 @@ async function getConversation(
     );
 
 
-    const response =
-      await fetch(
-        CONFIG.CONVERSATION_API,
-        {
+    let response;
 
-          method:
-            "POST",
+    let body;
 
-          headers: {
+    let rateLimitRetries = 0;
 
-            "Content-Type":
-              "application/json"
 
-          },
+    /* ================================================
+       RATE LIMIT RETRY
+       ================================================ */
 
-          body:
-            JSON.stringify({
+    while (true) {
 
-              apiToken:
-                API_TOKEN,
+      await waitBeforeConversationRequest();
 
-              phone_number_id:
-                CONFIG.PHONE_NUMBER_ID,
 
-              phone_number:
-                phoneNumber,
+      response =
+        await fetch(
+          CONFIG.CONVERSATION_API,
+          {
 
-              limit:
-                CONFIG.CHAT_LIMIT,
+            method:
+              "POST",
 
-              offset:
-                offset
+            headers: {
 
-            })
+              "Content-Type":
+                "application/json"
+
+            },
+
+            body:
+              JSON.stringify({
+
+                apiToken:
+                  API_TOKEN,
+
+                phone_number_id:
+                  CONFIG.PHONE_NUMBER_ID,
+
+                phone_number:
+                  phoneNumber,
+
+                limit:
+                  CONFIG.CHAT_LIMIT,
+
+                offset:
+                  offset
+
+              })
+
+          }
+        );
+
+
+      body =
+        await response.text();
+
+
+      console.log(
+        "Conversation API Status:",
+        response.status
+      );
+
+
+      const isRateLimit =
+        body
+          .toLowerCase()
+          .includes(
+            "api rate limit/minute exceeded"
+          );
+
+
+      if (isRateLimit) {
+
+        if (
+          rateLimitRetries >=
+          MAX_RATE_LIMIT_RETRIES
+        ) {
+
+          console.error(
+            "Rate limit retry limit reached:",
+            phoneNumber
+          );
+
+          return null;
 
         }
-      );
 
 
-    const body =
-      await response.text();
+        rateLimitRetries++;
 
 
-    console.log(
-      "Conversation API Status:",
-      response.status
-    );
+        console.log(
+          `API rate limit reached. Waiting 61 seconds before retry ${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES}...`
+        );
 
 
-    if (
-      !response.ok
-    ) {
+        await sleep(
+          RATE_LIMIT_WAIT_MS
+        );
 
-      console.error(
-        "Conversation API Error:",
-        body
-      );
 
-      return null;
+        continue;
+
+      }
+
+
+      if (!response.ok) {
+
+        console.error(
+          "Conversation API Error:",
+          body
+        );
+
+        return null;
+
+      }
+
+
+      break;
 
     }
 
@@ -862,10 +886,6 @@ async function getConversation(
       );
 
 
-    /**********************************************
-     * NEXT PAGE
-     **********************************************/
-
     const nextOffset =
       data.next_offset ??
       data.nextOffset ??
@@ -902,10 +922,6 @@ async function getConversation(
 
     pageNumber++;
 
-
-    /**********************************************
-     * SAFETY
-     **********************************************/
 
     if (
       pageNumber > 1000
@@ -944,9 +960,9 @@ async function getConversation(
 }
 
 
-/****************************************************
- * EXTRACT EVERYTHING
- ****************************************************/
+/* =====================================================
+   EXTRACT EVERYTHING
+   ===================================================== */
 
 function extractConversationData(data) {
 
@@ -967,10 +983,6 @@ function extractConversationData(data) {
   let sequenceResponse = "NO";
 
 
-  /************************************************
-   * SYSTEM EVENTS
-   ************************************************/
-
   messages.forEach(function(msg) {
 
     const content =
@@ -981,10 +993,6 @@ function extractConversationData(data) {
     const time =
       msg.conversation_time || "";
 
-
-    /**********************************************
-     * LABEL ADDED
-     **********************************************/
 
     if (
       content.indexOf(
@@ -1008,10 +1016,6 @@ function extractConversationData(data) {
     }
 
 
-    /**********************************************
-     * LABEL REMOVED
-     **********************************************/
-
     if (
       content.indexOf(
         "Label removed:"
@@ -1033,10 +1037,6 @@ function extractConversationData(data) {
 
     }
 
-
-    /**********************************************
-     * SEQUENCE SUBSCRIBED
-     **********************************************/
 
     if (
       content.indexOf(
@@ -1060,10 +1060,6 @@ function extractConversationData(data) {
     }
 
 
-    /**********************************************
-     * SEQUENCE UNSUBSCRIBED
-     **********************************************/
-
     if (
       content.indexOf(
         "Unsubscribed from sequence:"
@@ -1085,10 +1081,6 @@ function extractConversationData(data) {
 
     }
 
-
-    /**********************************************
-     * NOTES
-     **********************************************/
 
     if (
       content.indexOf(
@@ -1112,10 +1104,6 @@ function extractConversationData(data) {
     }
 
 
-    /**********************************************
-     * ASSIGNED AGENT
-     **********************************************/
-
     if (
       content.indexOf(
         "Conversation was assigned to"
@@ -1134,10 +1122,6 @@ function extractConversationData(data) {
 
   });
 
-
-  /************************************************
-   * ACTUAL CHAT MESSAGES
-   ************************************************/
 
   messages.forEach(function(msg) {
 
@@ -1214,14 +1198,6 @@ function extractConversationData(data) {
   });
 
 
-  /************************************************
-   * LAST 50 ACTUAL CHAT MESSAGES
-   *
-   * This keeps Sheet structure same.
-   *
-   * Analysis uses ALL messages.
-   ************************************************/
-
   const last50 =
     chatMessages.slice(-50);
 
@@ -1243,18 +1219,6 @@ function extractConversationData(data) {
       })
       .join("\n");
 
-
-  /************************************************
-   * SEQUENCE RESPONSE
-   *
-   * ONLY sender = "sequence"
-   * counts as actual sequence message.
-   *
-   * User after sequence = YES.
-   *
-   * User after "Subscribed to sequence:"
-   * does NOT count.
-   ************************************************/
 
   let lastSequenceMessageIndex =
     -1;
@@ -1309,10 +1273,6 @@ function extractConversationData(data) {
   }
 
 
-  /************************************************
-   * BOT RESPONSE ANALYSIS
-   ************************************************/
-
   const botResponseAnalysis =
     analyzeBotResponses(
       messages
@@ -1347,9 +1307,9 @@ function extractConversationData(data) {
 }
 
 
-/****************************************************
- * BOT RESPONSE ANALYSIS
- ****************************************************/
+/* =====================================================
+   BOT RESPONSE ANALYSIS
+   ===================================================== */
 
 function analyzeBotResponses(
   messages
@@ -1357,10 +1317,6 @@ function analyzeBotResponses(
 
   const events = [];
 
-
-  /************************************************
-   * BUILD EVENTS
-   ************************************************/
 
   messages.forEach(function(msg) {
 
@@ -1387,10 +1343,6 @@ function analyzeBotResponses(
       );
 
 
-    /**********************************************
-     * USER
-     **********************************************/
-
     if (
       sender === "user"
     ) {
@@ -1415,10 +1367,6 @@ function analyzeBotResponses(
 
     }
 
-
-    /**********************************************
-     * BOT / AI AGENT
-     **********************************************/
 
     if (
       sender === "bot" ||
@@ -1449,10 +1397,6 @@ function analyzeBotResponses(
 
     }
 
-
-    /**********************************************
-     * SYSTEM EVENTS
-     **********************************************/
 
     if (
       sender === "system"
@@ -1494,10 +1438,6 @@ function analyzeBotResponses(
   });
 
 
-  /************************************************
-   * SORT CHRONOLOGICALLY
-   ************************************************/
-
   events.sort(function(a, b) {
 
     return (
@@ -1510,10 +1450,6 @@ function analyzeBotResponses(
 
   const results = [];
 
-
-  /************************************************
-   * BOT → BOT GAPS
-   ************************************************/
 
   for (
     let i = 1;
@@ -1556,10 +1492,6 @@ function analyzeBotResponses(
     }
 
 
-    /**********************************************
-     * USER RESPONSE AFTER BOT
-     **********************************************/
-
     let userResponse =
       "NO";
 
@@ -1591,10 +1523,6 @@ function analyzeBotResponses(
     }
 
 
-    /**********************************************
-     * PREVIOUS USER
-     **********************************************/
-
     let previousUserIndex =
       -1;
 
@@ -1619,10 +1547,6 @@ function analyzeBotResponses(
 
     }
 
-
-    /**********************************************
-     * BOT COUNT BETWEEN USERS
-     **********************************************/
 
     let botMessagesBetween =
       0;
@@ -1656,10 +1580,6 @@ function analyzeBotResponses(
 
     }
 
-
-    /**********************************************
-     * LAST EVENT BEFORE USER
-     **********************************************/
 
     let lastBeforeUser =
       "N/A";
@@ -1729,10 +1649,6 @@ function analyzeBotResponses(
     }
 
 
-    /**********************************************
-     * RESULT BLOCK
-     **********************************************/
-
     let block = "";
 
 
@@ -1768,10 +1684,6 @@ function analyzeBotResponses(
   }
 
 
-  /************************************************
-   * NO GAP
-   ************************************************/
-
   if (
     results.length === 0
   ) {
@@ -1790,9 +1702,9 @@ function analyzeBotResponses(
 }
 
 
-/****************************************************
- * SYSTEM EVENT TYPE
- ****************************************************/
+/* =====================================================
+   SYSTEM EVENT TYPE
+   ===================================================== */
 
 function getSystemEventType(
   content
@@ -1825,9 +1737,9 @@ function getSystemEventType(
 }
 
 
-/****************************************************
- * AGENT NAME
- ****************************************************/
+/* =====================================================
+   AGENT NAME
+   ===================================================== */
 
 function extractAgentName(
   content
@@ -1854,9 +1766,9 @@ function extractAgentName(
 }
 
 
-/****************************************************
- * PARSE TIME
- ****************************************************/
+/* =====================================================
+   PARSE TIME
+   ===================================================== */
 
 function parseConversationTime(
   value
@@ -1876,7 +1788,7 @@ function parseConversationTime(
           " ",
           "T"
         ) +
-      "+05:30"
+        "+05:30"
     );
 
 
@@ -1896,9 +1808,9 @@ function parseConversationTime(
 }
 
 
-/****************************************************
- * FORMAT MINUTES
- ****************************************************/
+/* =====================================================
+   FORMAT MINUTES
+   ===================================================== */
 
 function formatMinutes(
   minutes
@@ -1954,9 +1866,9 @@ function formatMinutes(
 }
 
 
-/****************************************************
- * EXTRACT MESSAGE TEXT
- ****************************************************/
+/* =====================================================
+   EXTRACT MESSAGE TEXT
+   ===================================================== */
 
 function extractMessageText(
   content
@@ -1996,10 +1908,6 @@ function extractMessageText(
   }
 
 
-  /**********************************************
-   * USER TEXT
-   **********************************************/
-
   try {
 
     const text =
@@ -2017,10 +1925,6 @@ function extractMessageText(
 
   } catch (error) {}
 
-
-  /**********************************************
-   * BUTTON REPLY
-   **********************************************/
 
   try {
 
@@ -2042,10 +1946,6 @@ function extractMessageText(
   } catch (error) {}
 
 
-  /**********************************************
-   * LIST REPLY
-   **********************************************/
-
   try {
 
     const title =
@@ -2066,10 +1966,6 @@ function extractMessageText(
   } catch (error) {}
 
 
-  /**********************************************
-   * BOT TEXT
-   **********************************************/
-
   try {
 
     const text =
@@ -2084,10 +1980,6 @@ function extractMessageText(
 
   } catch (error) {}
 
-
-  /**********************************************
-   * BOT INTERACTIVE BODY
-   **********************************************/
 
   try {
 
@@ -2111,9 +2003,9 @@ function extractMessageText(
 }
 
 
-/****************************************************
- * SAVE / UPDATE DATABASE
- ****************************************************/
+/* =====================================================
+   SAVE / UPDATE DATABASE
+   ===================================================== */
 
 async function saveToDatabase(
   subscriber,
@@ -2327,9 +2219,9 @@ async function saveToDatabase(
 }
 
 
-/****************************************************
- * TODAY CHECK
- ****************************************************/
+/* =====================================================
+   TODAY CHECK
+   ===================================================== */
 
 function isToday(
   dateValue
@@ -2396,9 +2288,9 @@ function isToday(
 }
 
 
-/****************************************************
- * AUTOMATIC 15-MINUTE SYNC
- ****************************************************/
+/* =====================================================
+   AUTOMATIC 15-MINUTE SYNC
+   ===================================================== */
 
 setInterval(
   async function() {
@@ -2439,18 +2331,28 @@ setInterval(
   },
 
   CONFIG.SYNC_INTERVAL_MINUTES *
-  60 *
-  1000
+    60 *
+    1000
 
 );
 
 
-/****************************************************
- * START SERVER
- ****************************************************/
+/* =====================================================
+   START SERVER
+   ===================================================== */
 
-const PORT = process.env.PORT || 3000;
+const PORT =
+  process.env.PORT ||
+  3000;
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+
+app.listen(
+  PORT,
+  () => {
+
+    console.log(
+      `Server running on port ${PORT}`
+    );
+
+  }
+);
